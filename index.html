@@ -743,6 +743,11 @@ a.dev-discord{ color:var(--txt); text-decoration:none; cursor:pointer; transitio
 a.dev-discord:hover, a.dev-discord:focus-visible{ background:rgba(88,101,242,.28); border-color:#8c97ff; }
 .foot-dc{ color:var(--mut); text-decoration:none; }
 .foot-dc:hover, .foot-dc:focus-visible{ color:#8c97ff; text-decoration:underline; }
+.dev-badge{ position:relative; overflow:hidden; }
+.dev-pfp{ position:absolute; inset:3px; width:calc(100% - 6px); height:calc(100% - 6px); object-fit:cover; opacity:0; transition:opacity .4s; clip-path:polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px)); }
+[dir="rtl"] .dev-pfp{ clip-path:polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px); }
+.dev-pfp.ok{ opacity:1; }
+.dev-badge:has(.dev-pfp.ok) > i, .dev-badge:has(.dev-pfp.ok) > svg{ visibility:hidden; }
 </style>
 </head>
 <body>
@@ -905,14 +910,14 @@ a.dev-discord:hover, a.dev-discord:focus-visible{ background:rgba(88,101,242,.28
         <article class="dev-card panel cut">
           <div class="grid"></div>
           <p class="dev-tag" data-i18n="dev">Developer</p>
-          <div class="dev-badge cut"><i class="fa-solid fa-code"></i></div>
+          <div class="dev-badge cut"><i class="fa-solid fa-code"></i><img class="dev-pfp" data-discord="986237451943166013" alt="!.Silent.! Discord avatar" referrerpolicy="no-referrer"></div>
           <h2 class="dev-name">!.Silent.!</h2>
           <a class="dev-discord" href="https://discord.com/users/986237451943166013" target="_blank" rel="noopener" aria-label="Open !.Silent.! on Discord"><i class="fa-brands fa-discord"></i> <span>f9xd</span></a>
         </article>
         <article class="dev-card panel cut">
           <div class="grid"></div>
           <p class="dev-tag" data-i18n="dev">Developer</p>
-          <div class="dev-badge cut"><i class="fa-solid fa-terminal"></i></div>
+          <div class="dev-badge cut"><i class="fa-solid fa-terminal"></i><img class="dev-pfp" data-discord="1091698576373055538" alt="Tarek LB Discord avatar" referrerpolicy="no-referrer"></div>
           <h2 class="dev-name">Tarek LB</h2>
           <a class="dev-discord" href="https://discord.com/users/1091698576373055538" target="_blank" rel="noopener" aria-label="Open Tarek LB on Discord"><i class="fa-brands fa-discord"></i> <span>2a64</span></a>
         </article>
@@ -1589,6 +1594,31 @@ function updateThumb() {
   th.style.width = w + '%'; th.style.insetInlineStart = (pos * (100 - w)) + '%';
 }
 
+/* ---------- developer avatars (live from Discord) ---------- */
+async function lanyardAvatar(id) {
+  try {
+    const r = await fetch('https://api.lanyard.rest/v1/users/' + id);
+    const j = await r.json(); const u = j && j.success && j.data && j.data.discord_user;
+    if (!u || !u.avatar) return '';
+    return 'https://cdn.discordapp.com/avatars/' + id + '/' + u.avatar + (u.avatar.startsWith('a_') ? '.gif' : '.png') + '?size=256';
+  } catch (e) { return ''; }
+}
+function loadDevAvatars() {
+  document.querySelectorAll('.dev-pfp[data-discord]').forEach(img => {
+    const id = img.dataset.discord, bust = Math.floor(Date.now() / 36e5);
+    const sources = [() => 'https://dcdn.dstn.to/avatars/' + id + '?size=256&t=' + bust, () => lanyardAvatar(id)];
+    let i = 0;
+    const next = async () => {
+      if (i >= sources.length) { img.remove(); return; }
+      const src = await sources[i++]();
+      if (src) img.src = src; else next();
+    };
+    img.onload = () => img.classList.add('ok');
+    img.onerror = next;
+    next();
+  });
+}
+
 /* ---------- boot ---------- */
 (function boot() {
   document.body.insertAdjacentHTML('beforeend', '<datalist id="placesList">' + PLACES.map(p => '<option value="' + esc(p) + '">').join('') + '</datalist>');
@@ -1607,6 +1637,7 @@ function updateThumb() {
       subscribeLive();
     } catch (e) { sb = null; connError = String(e); ready = true; renderAll(); }
   } else { ready = true; connError = 'Supabase library did not load'; renderAll(); }
+  loadDevAvatars();
   setTimeout(() => $('boot').classList.add('gone'), 1900);
 })();
 
