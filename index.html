@@ -724,6 +724,17 @@ button,input,select,textarea{ font:inherit; color:inherit; }
 .ac-ro{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:0; color:var(--mut); font-size:14px; }
 .role-chip.dev{ border-color:rgba(140,151,255,.7); background:rgba(88,101,242,.15); color:#b9c0ff !important; }
 @media (max-width:640px){ .ac-modes{ grid-template-columns:1fr; } }
+/* permissions */
+.pm-act{ display:flex; gap:10px; flex-wrap:wrap; }
+.pm-note{ display:flex; gap:10px; align-items:flex-start; margin:0 0 14px; padding:12px 14px; border:1px solid var(--ln); background:rgba(12,13,9,.9); font-size:14px; }
+.pm-list{ display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); gap:12px; }
+.pm-card{ --c:16px; --fill:rgba(14,16,10,.96); padding:18px; }
+.pm-card header{ display:flex; justify-content:space-between; gap:14px; align-items:flex-start; }
+.pm-card h3{ margin:0 0 4px; font:700 17px Inter,Cairo,sans-serif; }
+.pm-card header p{ margin:0; color:var(--mut); font-size:13px; line-height:1.5; }
+.pm-card select{ flex:none; min-height:42px; max-width:52%; padding:0 10px; border:1px solid var(--ln2); background:#0c0e09; color:var(--tan); font:600 14px Inter,Cairo,sans-serif; }
+@media (max-width:560px){ .pm-list{ grid-template-columns:1fr; } .pm-card header{ flex-direction:column; } .pm-card select{ max-width:100%; width:100%; } }
+.pm-list{ align-items:start; }
 
 </style>
 </head>
@@ -764,6 +775,7 @@ button,input,select,textarea{ font:inherit; color:inherit; }
       <button class="tab cut" id="tab-branches" role="tab" onclick="go('branches')"><i class="fa-solid fa-code-branch"></i><span data-i18n="tBranches">Branches</span></button>
       <button class="tab cut" id="tab-reports" role="tab" onclick="go('reports')"><i class="fa-solid fa-file-lines"></i><span data-i18n="tReports">All Reports</span><b class="tab-badge hidden" id="pendingBadge">0</b></button>
       <button class="tab cut" id="tab-mine" role="tab" onclick="go('mine')"><i class="fa-solid fa-user-pen"></i><span data-i18n="tMine">My Reports</span></button>
+      <button class="tab cut hidden" id="tab-perms" role="tab" onclick="go('perms')"><i class="fa-solid fa-user-lock"></i><span data-i18n="tPerms">Permissions</span></button>
       <button class="tab cut" id="tab-credits" role="tab" onclick="go('credits')"><i class="fa-solid fa-code"></i><span data-i18n="tCredits">Credits</span></button>
     </nav>
   </div>
@@ -863,6 +875,18 @@ button,input,select,textarea{ font:inherit; color:inherit; }
         <button class="btn primary cut" type="button" onclick="pickBranchForReport()"><i class="fa-solid fa-file-circle-plus"></i><span data-i18n="newReport">New report</span></button>
       </div>
       <div class="rlist2" id="mineList"></div>
+    </div>
+  </section>
+
+  <!-- Permissions (developers) -->
+  <section id="permsView" class="view hidden">
+    <div class="wrap">
+      <div class="sec-row">
+        <div class="sec-head"><p class="kicker" data-i18n="pmK">Developer controls</p><h2 data-i18n="pmTitle">Permissions</h2><p data-i18n="pmSub">Choose who can do what across the Reports Center. Developers can always do everything.</p></div>
+        <div class="pm-act"><button class="btn cut" type="button" onclick="resetPermDraft()"><i class="fa-solid fa-rotate-left"></i><span data-i18n="pmReset">Undo changes</span></button><button class="btn primary cut" id="pmSave" type="button" onclick="savePerms()"><i class="fa-solid fa-floppy-disk"></i><span data-i18n="pmSave">Save permissions</span></button></div>
+      </div>
+      <p class="note pm-note"><i class="fa-solid fa-circle-info"></i> <span data-i18n="pmNote"></span></p>
+      <div class="pm-list" id="permsList"></div>
     </div>
   </section>
 
@@ -982,12 +1006,15 @@ const PLACES = ['Paleto Bay', 'Sandy Shores', 'Grapeseed', 'Harmony', 'Mount Chi
 
 let sb = null, currentUser = null, isAdmin = false, isMember = false, isDev = false, ready = false, connError = '';
 let ROSTER = [], BRANCHES = [], REPORTS = [];
+const PERM_KEYS = ['file_report', 'review_report', 'manage_reports', 'create_branch', 'edit_branch', 'delete_branch'];
+const PERM_DEFAULTS = { create_branch:{mode:'admins'}, edit_branch:{mode:'admins'}, delete_branch:{mode:'admins'}, file_report:{mode:'members'}, review_report:{mode:'admins'}, manage_reports:{mode:'admins'} };
+let PERMS = JSON.parse(JSON.stringify(PERM_DEFAULTS));
 let view = 'dash', openBranchId = null, lang = 'en';
 try { lang = localStorage.getItem('mtfr-lang') === 'ar' ? 'ar' : 'en'; } catch (e) {}
 
 const copy = {
   en: {
-    acTitle:'Who can access this branch', acEveryone:'Everyone in MTF', acEveryoneD:'Every roster member can see and file reports.', acAdmins:'Admins only', acAdminsD:'Captain I and above.', acCustom:'Specific ranks & members', acCustomD:'Only the ranks and people you pick below.', acRanks:'Ranks', acMembers:'Members', acDevOnly:'Only developers can change access.', acDevNote:'Developers always have access to every branch.', acNoDiscord:'(no Discord ID)', ac_everyone:'Everyone', ac_admins:'Admins only', ac_custom:'Restricted', acErr:'Pick at least one rank or member.', developer:'Developer',
+    acAnyone:'Anyone with Discord', acAnyoneD:'Anyone who links Discord, even if not on the roster.', ac_anyone:'Anyone', tPerms:'Permissions', pmK:'Developer controls', pmTitle:'Permissions', pmSub:'Choose who can do what across the Reports Center. Developers can always do everything.', pmSave:'Save permissions', pmReset:'Undo changes', pmSaved:'Permissions saved', lv_anyone:'Anyone with Discord', lv_members:'MTF members', lv_admins:'Admins (Captain I+)', lv_custom:'Specific ranks & members', lv_developers:'Developers only', p_file_report:'File reports', p_file_reportD:'Submit new reports in branches they can access.', p_review_report:'Review reports', p_review_reportD:'Change report status and write command notes.', p_manage_reports:'Edit & delete any report', p_manage_reportsD:'Change or remove reports written by others.', p_create_branch:'Create branches', p_create_branchD:'Add new branches and design their report forms.', p_edit_branch:'Edit branches', p_edit_branchD:'Rename branches, change design and report fields.', p_delete_branch:'Delete branches', p_delete_branchD:'Remove empty branches.', pmNote:'Branch visibility is set per branch in Edit branch. Both rules apply: someone needs access to the branch and the permission.', acTitle:'Who can access this branch', acEveryone:'Everyone in MTF', acEveryoneD:'Every roster member can see and file reports.', acAdmins:'Admins only', acAdminsD:'Captain I and above.', acCustom:'Specific ranks & members', acCustomD:'Only the ranks and people you pick below.', acRanks:'Ranks', acMembers:'Members', acDevOnly:'Only developers can change access.', acDevNote:'Developers always have access to every branch.', acNoDiscord:'(no Discord ID)', ac_everyone:'Everyone', ac_admins:'Admins only', ac_custom:'Restricted', acErr:'Pick at least one rank or member.', developer:'Developer',
     title:'FT | MTF Reports Center', bootK:'Secure reports link', bootT:'MTF Reports', bootS:'Opening branch records',
     brandK:'MTF // Military Tactical Force', brandT:'MTF <span>Reports Center</span>',
     tDash:'Dashboard', tBranches:'Branches', tReports:'All Reports', tMine:'My Reports', tCredits:'Credits',
@@ -1016,7 +1043,7 @@ const copy = {
     devK:'Built by', devTeam:'Development Team', headDev:'Head Developer', dev:'Developer', devRole:'Developer · MTF Reports Center', devNote:'Designed and developed for the Military Tactical Force of First Town.'
   },
   ar: {
-    acTitle:'من يمكنه الوصول لهذا الفرع', acEveryone:'جميع أفراد القوة', acEveryoneD:'كل فرد في الجدول يمكنه رؤية التقارير وكتابتها.', acAdmins:'المشرفون فقط', acAdminsD:'نقيب I فما فوق.', acCustom:'رتب وأفراد محددون', acCustomD:'فقط الرتب والأشخاص الذين تختارهم أدناه.', acRanks:'الرتب', acMembers:'الأفراد', acDevOnly:'فقط المطوّرون يمكنهم تغيير صلاحيات الوصول.', acDevNote:'المطوّرون لديهم وصول دائم لكل الفروع.', acNoDiscord:'(بدون معرّف ديسكورد)', ac_everyone:'الجميع', ac_admins:'المشرفون فقط', ac_custom:'مقيّد', acErr:'اختر رتبة أو فرداً واحداً على الأقل.', developer:'مطوّر',
+    acAnyone:'أي شخص لديه ديسكورد', acAnyoneD:'أي شخص يربط ديسكورد حتى لو لم يكن في الجدول.', ac_anyone:'الجميع', tPerms:'الصلاحيات', pmK:'تحكم المطوّرين', pmTitle:'الصلاحيات', pmSub:'اختر من يمكنه فعل ماذا في مركز التقارير. المطوّرون يمكنهم فعل كل شيء دائماً.', pmSave:'حفظ الصلاحيات', pmReset:'تراجع عن التغييرات', pmSaved:'تم حفظ الصلاحيات', lv_anyone:'أي شخص لديه ديسكورد', lv_members:'أفراد القوة', lv_admins:'المشرفون (نقيب I فما فوق)', lv_custom:'رتب وأفراد محددون', lv_developers:'المطوّرون فقط', p_file_report:'كتابة التقارير', p_file_reportD:'إرسال تقارير جديدة في الفروع المتاحة لهم.', p_review_report:'مراجعة التقارير', p_review_reportD:'تغيير حالة التقرير وكتابة ملاحظات القيادة.', p_manage_reports:'تعديل وحذف أي تقرير', p_manage_reportsD:'تعديل أو حذف تقارير كتبها آخرون.', p_create_branch:'إنشاء الفروع', p_create_branchD:'إضافة فروع جديدة وتصميم نماذجها.', p_edit_branch:'تعديل الفروع', p_edit_branchD:'إعادة تسمية الفروع وتغيير تصميمها وحقولها.', p_delete_branch:'حذف الفروع', p_delete_branchD:'إزالة الفروع الفارغة.', pmNote:'ظهور الفرع يُحدد لكل فرع من نافذة تعديل الفرع. يجب تحقق الشرطين: الوصول للفرع والصلاحية.', acTitle:'من يمكنه الوصول لهذا الفرع', acEveryone:'جميع أفراد القوة', acEveryoneD:'كل فرد في الجدول يمكنه رؤية التقارير وكتابتها.', acAdmins:'المشرفون فقط', acAdminsD:'نقيب I فما فوق.', acCustom:'رتب وأفراد محددون', acCustomD:'فقط الرتب والأشخاص الذين تختارهم أدناه.', acRanks:'الرتب', acMembers:'الأفراد', acDevOnly:'فقط المطوّرون يمكنهم تغيير صلاحيات الوصول.', acDevNote:'المطوّرون لديهم وصول دائم لكل الفروع.', acNoDiscord:'(بدون معرّف ديسكورد)', ac_everyone:'الجميع', ac_admins:'المشرفون فقط', ac_custom:'مقيّد', acErr:'اختر رتبة أو فرداً واحداً على الأقل.', developer:'مطوّر',
     title:'FT | مركز تقارير MTF', bootK:'رابط تقارير آمن', bootT:'تقارير MTF', bootS:'جارٍ فتح سجلات الفروع',
     brandK:'MTF // القوة التكتيكية العسكرية', brandT:'MTF <span>مركز التقارير</span>',
     tDash:'لوحة التحكم', tBranches:'الفروع', tReports:'كل التقارير', tMine:'تقاريري', tCredits:'الحقوق',
@@ -1140,7 +1167,8 @@ async function refresh() {
   try {
     const e1 = await loadRoster();
     await refreshRoles();
-    if (isAdmin || isMember) await Promise.all([loadBranches(), loadReports()]);
+    await loadPerms();
+    if (currentUser) await Promise.all([loadBranches(), loadReports()]);
     else { BRANCHES = []; REPORTS = []; }
     connError = e1 ? (e1.message || 'error') : '';
   } catch (e) { connError = String(e && e.message || e); }
@@ -1152,13 +1180,14 @@ function subscribeLive() {
     sb.channel('mtf-reports')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, () => { clearTimeout(liveTimer); liveTimer = setTimeout(async () => { await loadReports(); renderAll(); }, 250); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'branches' }, async () => { await loadBranches(); renderAll(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, async () => { await loadPerms(); renderAll(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'roster' }, async () => { await loadRoster(); await refreshRoles(); renderAll(); })
       .subscribe();
   } catch (e) {}
 }
 
 /* ---------- navigation ---------- */
-const VIEWS = ['dash', 'branches', 'reports', 'mine', 'credits'];
+const VIEWS = ['dash', 'branches', 'reports', 'mine', 'perms', 'credits'];
 function go(v, keepBranch) {
   if (!VIEWS.includes(v)) v = 'dash';
   view = v; if (!keepBranch) openBranchId = null;
@@ -1166,8 +1195,9 @@ function go(v, keepBranch) {
   try { history.replaceState(null, '', '#' + v + (openBranchId ? '/' + openBranchId : '')); } catch (e) {}
   renderView(); window.scrollTo({ top: 0, behavior: 'smooth' });
 }
-function canSee() { return isAdmin || isMember || isDev; }
+function canSee() { return !!currentUser && (isAdmin || isMember || isDev || BRANCHES.length > 0); }
 function renderView() {
+  if (view === 'perms' && ready && !isDev) view = 'dash';
   const gated = view !== 'credits' && !canSee();
   $('gateView').classList.toggle('hidden', !gated);
   VIEWS.forEach(x => $(x + 'View').classList.toggle('hidden', gated || x !== view));
@@ -1190,9 +1220,10 @@ function renderConn() {
 function renderAll() {
   renderConn(); renderDiscord(); renderView();
   const pend = REPORTS.filter(r => r.status === 'submitted' || r.status === 'review').length;
-  $('pendingBadge').textContent = pend; $('pendingBadge').classList.toggle('hidden', !isAdmin || !pend);
+  $('pendingBadge').textContent = pend; $('pendingBadge').classList.toggle('hidden', !can('review_report') || !pend);
+  $('tab-perms').classList.toggle('hidden', !isDev);
   if (!canSee()) return;
-  renderDash(); renderBranches(); renderRegistryFilters(); renderRegistry(); renderMine(); updateThumb();
+  renderDash(); renderBranches(); renderRegistryFilters(); renderRegistry(); renderMine(); renderPerms(); updateThumb();
 }
 
 /* ---------- dashboard ---------- */
@@ -1223,16 +1254,16 @@ function reportRows(list) {
 
 /* ---------- branches ---------- */
 function renderBranches() {
-  $('brAdmin').innerHTML = isAdmin ? '<button class="btn primary cut" type="button" onclick="openBuilder()"><i class="fa-solid fa-plus"></i><span>' + t('newBranch') + '</span></button>' : '';
-  $('branchGrid').innerHTML = BRANCHES.length ? BRANCHES.map(b => { const n = REPORTS.filter(r => r.branch_id === b.id).length; return '<article class="bcard cut' + (b.active ? '' : ' is-closed') + '" style="--bc:' + esc(b.color) + '"><button class="b-open" type="button" onclick="openBranch(\'' + b.id + '\')"><span class="b-ico"><i class="fa-solid ' + esc(b.icon) + '"></i></span><span class="b-code">' + esc(b.code || '') + (b.active ? '' : ' · ' + t('closed')) + '</span><h3>' + esc(bName(b)) + '</h3><p>' + esc(b.description) + '</p><span class="b-meta"><span>' + t('reportsN', { n }) + '</span><span>' + t('fieldsN', { n: (b.fields || []).length }) + '</span>' + accessChip(b) + '</span></button>' + (isAdmin ? '<button class="b-edit" type="button" onclick="openBuilder(\'' + b.id + '\')" aria-label="' + t('editBranch') + '"><i class="fa-solid fa-pen"></i></button>' : '') + '</article>'; }).join('') : '<div class="empty cut">' + t('noBranches') + '</div>';
+  $('brAdmin').innerHTML = can('create_branch') ? '<button class="btn primary cut" type="button" onclick="openBuilder()"><i class="fa-solid fa-plus"></i><span>' + t('newBranch') + '</span></button>' : '';
+  $('branchGrid').innerHTML = BRANCHES.length ? BRANCHES.map(b => { const n = REPORTS.filter(r => r.branch_id === b.id).length; return '<article class="bcard cut' + (b.active ? '' : ' is-closed') + '" style="--bc:' + esc(b.color) + '"><button class="b-open" type="button" onclick="openBranch(\'' + b.id + '\')"><span class="b-ico"><i class="fa-solid ' + esc(b.icon) + '"></i></span><span class="b-code">' + esc(b.code || '') + (b.active ? '' : ' · ' + t('closed')) + '</span><h3>' + esc(bName(b)) + '</h3><p>' + esc(b.description) + '</p><span class="b-meta"><span>' + t('reportsN', { n }) + '</span><span>' + t('fieldsN', { n: (b.fields || []).length }) + '</span>' + accessChip(b) + '</span></button>' + (can('edit_branch') ? '<button class="b-edit" type="button" onclick="openBuilder(\'' + b.id + '\')" aria-label="' + t('editBranch') + '"><i class="fa-solid fa-pen"></i></button>' : '') + '</article>'; }).join('') : '<div class="empty cut">' + t('noBranches') + '</div>';
   const det = $('branchDetail'), b = branchById(openBranchId);
   $('branchIndex').classList.toggle('hidden', !!b); det.classList.toggle('hidden', !b);
   if (!b) return;
   const q = (det.querySelector('#bdQ') || {}).value || '', st = (det.querySelector('#bdS') || {}).value || '';
   det.innerHTML = '<button class="link-btn back" type="button" onclick="openBranch(null)"><i class="fa-solid fa-arrow-left"></i> <span>' + t('back') + '</span></button>' +
     '<section class="bd-hero cut" style="--bc:' + esc(b.color) + '"><span class="b-ico big"><i class="fa-solid ' + esc(b.icon) + '"></i></span><div><p class="kicker">' + esc(b.code || '') + (b.active ? '' : ' · ' + t('closed')) + '</p><h2>' + esc(bName(b)) + '</h2><p>' + esc(b.description) + '</p></div><div class="bd-act">' +
-    (b.active ? '<button class="btn primary cut" type="button" onclick="openReportForm(\'' + b.id + '\')"><i class="fa-solid fa-file-circle-plus"></i><span>' + t('newReport') + '</span></button>' : '') +
-    (isAdmin ? '<button class="btn cut" type="button" onclick="openBuilder(\'' + b.id + '\')"><i class="fa-solid fa-pen-ruler"></i><span>' + t('editBranch') + '</span></button>' : '') + '</div></section>' +
+    (b.active && can('file_report') ? '<button class="btn primary cut" type="button" onclick="openReportForm(\'' + b.id + '\')"><i class="fa-solid fa-file-circle-plus"></i><span>' + t('newReport') + '</span></button>' : '') +
+    (can('edit_branch') ? '<button class="btn cut" type="button" onclick="openBuilder(\'' + b.id + '\')"><i class="fa-solid fa-pen-ruler"></i><span>' + t('editBranch') + '</span></button>' : '') + '</div></section>' +
     '<div class="filters cut"><label class="f-search"><i class="fa-solid fa-magnifying-glass"></i><input id="bdQ" type="search" autocomplete="off" placeholder="' + esc(t('searchPh')) + '" value="' + esc(q) + '" oninput="renderBranchList()"></label><select id="bdS" onchange="renderBranchList()"><option value="">' + t('allStatus') + '</option>' + STATUSES.map(s => '<option value="' + s + '"' + (s === st ? ' selected' : '') + '>' + t('st_' + s) + '</option>').join('') + '</select></div>' +
     '<div class="rlist2" id="bdList"></div>';
   renderBranchList();
@@ -1249,6 +1280,7 @@ function renderBranchList() {
 }
 function openBranch(id) { openBranchId = id; view = 'branches'; VIEWS.forEach(x => $('tab-' + x).setAttribute('aria-selected', String(x === 'branches'))); try { history.replaceState(null, '', '#branches' + (id ? '/' + id : '')); } catch (e) {} renderView(); renderBranches(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
 function pickBranchForReport() {
+  if (!can('file_report')) { toast(t('errPerm')); return; }
   const open = BRANCHES.filter(b => b.active);
   if (open.length === 1) { openReportForm(open[0].id); return; }
   $('pickList').innerHTML = open.length ? open.map(b => '<button class="rrow cut" type="button" style="--bc:' + esc(b.color) + '" onclick="closeModal(\'pickModal\');openReportForm(\'' + b.id + '\')"><span class="r-ico"><i class="fa-solid ' + esc(b.icon) + '"></i></span><span class="r-main"><b>' + esc(bName(b)) + '</b><small>' + esc(b.description) + '</small></span><i class="fa-solid fa-chevron-right"></i></button>').join('') : '<div class="empty cut">' + t('noBranches') + '</div>';
@@ -1337,9 +1369,9 @@ function reportHtml(r, forPrint) {
 }
 function viewReport(id) {
   const r = REPORTS.find(x => x.id === id); if (!r) return;
-  const mine = currentUser && r.author_id === currentUser.id, editable = isAdmin || (mine && r.status === 'submitted');
+  const mine = currentUser && r.author_id === currentUser.id, editable = can('manage_reports') || (mine && r.status === 'submitted');
   let html = reportHtml(r, false);
-  if (isAdmin) html += '<section class="rv-review cut"><p class="kicker">' + t('setStatus') + '</p><div class="st-pick">' + STATUSES.map(s => '<label><input type="radio" name="rvSt" value="' + s + '"' + (s === r.status ? ' checked' : '') + '><span class="status st-' + s + '">' + t('st_' + s) + '</span></label>').join('') + '</div><label class="fld wide"><span>' + t('note') + '</span><textarea id="rvNote" rows="3" maxlength="1500">' + esc(r.reviewer_note || '') + '</textarea></label><button class="btn primary cut" type="button" onclick="saveReview(\'' + r.id + '\')"><i class="fa-solid fa-check-double"></i><span>' + t('saveReview') + '</span></button></section>';
+  if (can('review_report')) html += '<section class="rv-review cut"><p class="kicker">' + t('setStatus') + '</p><div class="st-pick">' + STATUSES.map(s => '<label><input type="radio" name="rvSt" value="' + s + '"' + (s === r.status ? ' checked' : '') + '><span class="status st-' + s + '">' + t('st_' + s) + '</span></label>').join('') + '</div><label class="fld wide"><span>' + t('note') + '</span><textarea id="rvNote" rows="3" maxlength="1500">' + esc(r.reviewer_note || '') + '</textarea></label><button class="btn primary cut" type="button" onclick="saveReview(\'' + r.id + '\')"><i class="fa-solid fa-check-double"></i><span>' + t('saveReview') + '</span></button></section>';
   html += '<div class="m-actions rv-actions"><button class="btn cut" type="button" onclick="printReport(\'' + r.id + '\')"><i class="fa-solid fa-print"></i><span>' + t('print') + '</span></button>' +
     (editable ? '<button class="btn cut" type="button" onclick="openReportForm(\'' + r.branch_id + '\',\'' + r.id + '\')"><i class="fa-solid fa-pen"></i><span>' + t('edit') + '</span></button><button class="btn cut danger" type="button" onclick="deleteReport(\'' + r.id + '\')"><i class="fa-solid fa-trash"></i><span>' + t('del') + '</span></button>' : '') + '</div>';
   $('rvBody').innerHTML = html; openModal('viewModal');
@@ -1390,11 +1422,11 @@ function renderMine() { $('mineList').innerHTML = reportRows(REPORTS.filter(r =>
 /* ---------- branch access (developers) ---------- */
 const DEFAULT_ACCESS = { mode: 'everyone', ranks: [], members: [] };
 function accessOf(b) { const a = (b && b.access) || DEFAULT_ACCESS; return { mode: a.mode || 'everyone', ranks: a.ranks || [], members: a.members || [] }; }
-function accessChip(b) { const a = accessOf(b); return '<span class="ac-chip ac-' + a.mode + '"><i class="fa-solid ' + (a.mode === 'everyone' ? 'fa-users' : a.mode === 'admins' ? 'fa-user-shield' : 'fa-lock') + '"></i> ' + t('ac_' + a.mode) + '</span>'; }
+function accessChip(b) { const a = accessOf(b); return '<span class="ac-chip ac-' + a.mode + '"><i class="fa-solid ' + (a.mode === 'anyone' ? 'fa-globe' : a.mode === 'everyone' ? 'fa-users' : a.mode === 'admins' ? 'fa-user-shield' : 'fa-lock') + '"></i> ' + t('ac_' + a.mode) + '</span>'; }
 function bbRenderAccess() {
   const box = $('bAccess'), a = bb.access;
   if (!isDev) { box.innerHTML = '<p class="ac-ro">' + accessChip({ access: a }) + ' <span>' + t('acDevOnly') + '</span></p>'; return; }
-  const modes = [['everyone', 'fa-users', 'acEveryone'], ['admins', 'fa-user-shield', 'acAdmins'], ['custom', 'fa-lock', 'acCustom']];
+  const modes = [['anyone', 'fa-globe', 'acAnyone'], ['everyone', 'fa-users', 'acEveryone'], ['admins', 'fa-user-shield', 'acAdmins'], ['custom', 'fa-lock', 'acCustom']];
   let h = '<div class="ac-modes">' + modes.map(([m, ic, k]) => '<label class="ac-mode' + (a.mode === m ? ' on' : '') + '"><input type="radio" name="acMode" value="' + m + '"' + (a.mode === m ? ' checked' : '') + ' onchange="bbAccessMode(this.value)"><i class="fa-solid ' + ic + '"></i><b>' + t(k) + '</b><small>' + t(k + 'D') + '</small></label>').join('') + '</div>';
   if (a.mode === 'custom') {
     h += '<p class="ac-sub">' + t('acRanks') + '</p><div class="ac-ranks">' + RANKS.map(r => '<label><input type="checkbox" class="acRank" value="' + esc(r.en) + '"' + (a.ranks.includes(r.en) ? ' checked' : '') + ' onchange="bbAccessRead()"><span>' + esc(lang === 'ar' ? r.ar : r.en) + '</span></label>').join('') + '</div>';
@@ -1416,12 +1448,12 @@ function bbAccessRead() {
 let bb = null;
 function slug(s) { return (String(s).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 24) || 'field') + '_' + Math.random().toString(36).slice(2, 6); }
 function openBuilder(id) {
-  if (!isAdmin) return;
+  if (!(id ? can('edit_branch') : can('create_branch'))) return;
   const b = id ? branchById(id) : null;
   bb = { access: JSON.parse(JSON.stringify(accessOf(b))), id: b ? b.id : null, color: b ? b.color : COLORS[BRANCHES.length % COLORS.length], icon: b ? b.icon : 'fa-shield-halved', fields: JSON.parse(JSON.stringify(b ? b.fields || [] : [{ key: 'when', label: 'Date & time', label_ar: 'التاريخ والوقت', type: 'datetime', required: true }, { key: 'place', label: 'Location', label_ar: 'الموقع', type: 'location', required: true }, { key: 'lead', label: 'Responsible officer', label_ar: 'المسؤول', type: 'member', required: true }, { key: 'desc', label: 'Description', label_ar: 'الوصف', type: 'textarea', required: true }])) };
   $('bbTitle').textContent = b ? t('bbEdit') + ' · ' + bName(b) : t('bbNew');
   $('bName').value = b ? b.name : ''; $('bNameAr').value = b ? b.name_ar : ''; $('bCode').value = b ? b.code : ''; $('bDesc').value = b ? b.description : ''; $('bActive').checked = b ? b.active : true;
-  $('bDelete').classList.toggle('hidden', !b); $('bError').textContent = '';
+  $('bDelete').classList.toggle('hidden', !b || !can('delete_branch')); $('bError').textContent = '';
   $('bAddField').innerHTML = '<span class="bb-label">' + t('addField') + '</span>' + FIELD_TYPES.map(ty => '<button class="chip-btn" type="button" onclick="bbAdd(\'' + ty + '\')">+ ' + t('ty_' + ty) + '</button>').join('');
   bbRender(); bbRenderAccess(); openModal('builderModal');
   setTimeout(() => $('bName').focus(), 30);
@@ -1488,6 +1520,53 @@ async function deleteBranch() {
   if (openBranchId === bb.id) openBranchId = null;
   closeBuilder(); toast(t('deleted')); await loadBranches(); renderAll();
 }
+
+/* ---------- permissions (developers) ---------- */
+const LEVELS = ['anyone', 'members', 'admins', 'custom', 'developers'];
+function ruleOf(p) { const r = (PERMS && PERMS[p]) || PERM_DEFAULTS[p] || { mode: 'developers' }; return { mode: r.mode || 'developers', ranks: r.ranks || [], members: r.members || [] }; }
+function can(p) {
+  if (isDev) return true;
+  const d = discordInfo(currentUser); if (!d || !d.id) return false;
+  const r = ruleOf(p), m = me();
+  if (r.mode === 'anyone') return true;
+  if (r.mode === 'members' || r.mode === 'everyone') return !!m;
+  if (r.mode === 'admins') return isAdmin;
+  if (r.mode === 'custom') return (!!m && r.ranks.includes(m.rank)) || r.members.includes(d.id);
+  return false;
+}
+async function loadPerms() {
+  if (!sb) return;
+  const { data, error } = await sb.from('settings').select('value').eq('key', 'permissions').limit(1);
+  if (!error && data && data[0] && data[0].value) PERMS = Object.assign(JSON.parse(JSON.stringify(PERM_DEFAULTS)), data[0].value);
+}
+let permDraft = null;
+function renderPerms() {
+  const box = $('permsList'); if (!box || !isDev) return;
+  if (!permDraft) permDraft = JSON.parse(JSON.stringify(PERM_KEYS.reduce((o, k) => (o[k] = ruleOf(k), o), {})));
+  box.innerHTML = PERM_KEYS.map(k => {
+    const r = permDraft[k];
+    let h = '<article class="pm-card cut"><header><div><h3>' + t('p_' + k) + '</h3><p>' + t('p_' + k + 'D') + '</p></div>' +
+      '<select onchange="permMode(\'' + k + '\', this.value)">' + LEVELS.map(l => '<option value="' + l + '"' + (r.mode === l ? ' selected' : '') + '>' + t('lv_' + l) + '</option>').join('') + '</select></header>';
+    if (r.mode === 'custom') {
+      h += '<p class="ac-sub">' + t('acRanks') + '</p><div class="ac-ranks">' + RANKS.map(x => '<label><input type="checkbox"' + (r.ranks.includes(x.en) ? ' checked' : '') + ' onchange="permToggle(\'' + k + '\',\'ranks\',\'' + esc(x.en).replace(/'/g, "\\'") + '\',this.checked)"><span>' + esc(lang === 'ar' ? x.ar : x.en) + '</span></label>').join('') + '</div>';
+      h += '<p class="ac-sub">' + t('acMembers') + '</p><div class="multi"><input class="multi-q" type="search" placeholder="' + esc(t('membersPh')) + '" oninput="filterMulti(this)"><div class="multi-list">' + ROSTER.map(m => '<label' + (m.discord ? '' : ' class="dis"') + '><input type="checkbox"' + (m.discord && r.members.includes(m.discord) ? ' checked' : '') + (m.discord ? '' : ' disabled') + ' onchange="permToggle(\'' + k + '\',\'members\',\'' + esc(m.discord) + '\',this.checked)"><span>' + esc(memberLabel(m)) + (m.discord ? '' : ' ' + t('acNoDiscord')) + '</span></label>').join('') + '</div></div>';
+    }
+    return h + '</article>';
+  }).join('');
+}
+function permMode(k, m) { permDraft[k].mode = m; renderPerms(); }
+function permToggle(k, list, v, on) { const a = permDraft[k][list]; const i = a.indexOf(v); if (on && i < 0) a.push(v); if (!on && i >= 0) a.splice(i, 1); }
+async function savePerms() {
+  if (!isDev || !permDraft) return;
+  for (const k of PERM_KEYS) { const r = permDraft[k]; if (r.mode === 'custom' && !r.ranks.length && !r.members.length) { toast(t('p_' + k) + ': ' + t('acErr')); return; } if (r.mode !== 'custom') { r.ranks = []; r.members = []; } }
+  const btn = $('pmSave'); btn.disabled = true;
+  const res = await sb.from('settings').upsert({ key: 'permissions', value: permDraft, updated_at: new Date().toISOString() }).select();
+  btn.disabled = false;
+  if (res.error || !res.data || !res.data.length) { toast(errText(res.error || { code: '42501' })); return; }
+  PERMS = Object.assign(JSON.parse(JSON.stringify(PERM_DEFAULTS)), permDraft); permDraft = null;
+  toast(t('pmSaved')); renderAll();
+}
+function resetPermDraft() { permDraft = null; renderPerms(); }
 
 /* ---------- tabs scroll indicator ---------- */
 function updateThumb() {
