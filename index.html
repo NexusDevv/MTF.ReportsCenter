@@ -1185,7 +1185,8 @@ async function refresh() {
   try {
     const e1 = await loadRoster();
     await refreshRoles();
-    await loadPerms();
+    await Promise.all([loadPerms(), loadDevAvatarStore()]);
+    syncMyDevAvatar().then(loadDevAvatars);
     if (currentUser) await Promise.all([loadBranches(), loadReports()]);
     else { BRANCHES = []; REPORTS = []; }
     connError = e1 ? (e1.message || 'error') : '';
@@ -1198,7 +1199,7 @@ function subscribeLive() {
     sb.channel('mtf-reports')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, () => { clearTimeout(liveTimer); liveTimer = setTimeout(async () => { await loadReports(); renderAll(); }, 250); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'branches' }, async () => { await loadBranches(); renderAll(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, async () => { await loadPerms(); renderAll(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, async () => { await Promise.all([loadPerms(), loadDevAvatarStore()]); renderAll(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'roster' }, async () => { await loadRoster(); await refreshRoles(); renderAll(); })
       .subscribe();
   } catch (e) {}
@@ -1236,6 +1237,7 @@ function renderConn() {
   el.querySelector('span').textContent = !ready ? t('connWait') : (!sb || connError) ? t('connOff') : t('connOk');
 }
 function renderAll() {
+  loadDevAvatars();
   renderConn(); renderDiscord(); renderView();
   const pend = REPORTS.filter(r => r.status === 'submitted' || r.status === 'review').length;
   $('pendingBadge').textContent = pend; $('pendingBadge').classList.toggle('hidden', !can('review_report') || !pend);
@@ -1603,18 +1605,41 @@ async function lanyardAvatar(id) {
     return 'https://cdn.discordapp.com/avatars/' + id + '/' + u.avatar + (u.avatar.startsWith('a_') ? '.gif' : '.png') + '?size=256';
   } catch (e) { return ''; }
 }
+let DEV_AVATARS = {};
+async function loadDevAvatarStore() {
+  if (!sb) return;
+  try { const { data, error } = await sb.from('settings').select('value').eq('key', 'dev_avatars').limit(1); if (!error && data && data[0] && data[0].value) DEV_AVATARS = data[0].value; } catch (e) {}
+}
+/* when a developer is signed in, save their current Discord avatar so every visitor sees it */
+async function syncMyDevAvatar() {
+  if (!sb || !isDev) return;
+  const d = discordInfo(currentUser);
+  if (!d || !d.id || !d.avatar || !document.querySelector('.dev-pfp[data-discord="' + d.id + '"]')) return;
+  await loadDevAvatarStore();
+  if (DEV_AVATARS[d.id] === d.avatar) return;
+  const value = Object.assign({}, DEV_AVATARS, { [d.id]: d.avatar });
+  const res = await sb.from('settings').upsert({ key: 'dev_avatars', value, updated_at: new Date().toISOString() }).select();
+  if (!res.error) DEV_AVATARS = value;
+}
 function loadDevAvatars() {
+  const d = discordInfo(currentUser), bust = Math.floor(Date.now() / 36e5);
   document.querySelectorAll('.dev-pfp[data-discord]').forEach(img => {
-    const id = img.dataset.discord, bust = Math.floor(Date.now() / 36e5);
-    const sources = [() => 'https://dcdn.dstn.to/avatars/' + id + '?size=256&t=' + bust, () => lanyardAvatar(id)];
+    const id = img.dataset.discord, list = [];
+    if (d && d.id === id && d.avatar) list.push(d.avatar);
+    if (DEV_AVATARS[id] && !list.includes(DEV_AVATARS[id])) list.push(DEV_AVATARS[id]);
+    list.push('https://dcdn.dstn.to/avatars/' + id + '?size=256&t=' + bust, 'lanyard');
+    const key = list.join('|');
+    if (img.dataset.key === key) return;
+    img.dataset.key = key;
     let i = 0;
     const next = async () => {
-      if (i >= sources.length) { img.remove(); return; }
-      const src = await sources[i++]();
+      if (img.dataset.key !== key) return;
+      if (i >= list.length) { img.classList.remove('ok'); img.removeAttribute('src'); return; }
+      const item = list[i++], src = item === 'lanyard' ? await lanyardAvatar(id) : item;
       if (src) img.src = src; else next();
     };
     img.onload = () => img.classList.add('ok');
-    img.onerror = next;
+    img.onerror = () => { img.classList.remove('ok'); next(); };
     next();
   });
 }
